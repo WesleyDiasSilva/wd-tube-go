@@ -1,0 +1,4 @@
+*.chunk
+*.m4s
+*.mpd
+/.docker
