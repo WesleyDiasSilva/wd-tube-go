@@ -12,15 +12,20 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"wd-tube/internal/rabbitmq"
+
+	"github.com/streadway/amqp"
 )
 
 type VideoConverter struct {
-	db *sql.DB
+	db             *sql.DB
+	rabbitmqClient *rabbitmq.RabbitClient
 }
 
-func NewVideoConverter(db *sql.DB) *VideoConverter {
+func NewVideoConverter(db *sql.DB, rabbitmqClient rabbitmq.RabbitClient) *VideoConverter {
 	return &VideoConverter{
-		db: db,
+		db:             db,
+		rabbitmqClient: &rabbitmqClient,
 	}
 }
 
@@ -29,15 +34,17 @@ type VideoTask struct {
 	Path    string `json:"path"`
 }
 
-func (vc *VideoConverter) Handle(msg []byte) {
+func (vc *VideoConverter) Handle(d amqp.Delivery, conversionExch, confirmationQueue, confirmationKey string) {
 	var task VideoTask
-	err := json.Unmarshal(msg, &task)
+	err := json.Unmarshal(d.Body, &task)
 	if err != nil {
 		vc.logError(task, "failed to unmarshal task", err)
+		return
 	}
 
 	if IsProcessed(vc.db, task.VideoID) {
 		slog.Warn("Video already processed", slog.Int("video_id", task.VideoID))
+		d.Ack(false)
 		return
 	}
 
@@ -51,7 +58,16 @@ func (vc *VideoConverter) Handle(msg []byte) {
 		vc.logError(task, "failed to mark video as processed", err)
 		return
 	}
-	slog.Info("Video processing completed", slog.Int("video_id", task.VideoID))
+	d.Ack(false)
+	slog.Info("\033[32m"+"Video processing completed"+"\033[0m", slog.Int("video_id", task.VideoID))
+
+	confirmationMessage := []byte(fmt.Sprintf(`{"video_id": %d, "path":"%s"}`, task.VideoID, task.Path))
+
+	err = vc.rabbitmqClient.PublishMessage(conversionExch, confirmationKey, confirmationQueue, confirmationMessage)
+
+	if err != nil {
+		vc.logError(task, "failed to publish confirmation message", err)
+	}
 }
 
 func (vc *VideoConverter) procecssVideo(task *VideoTask) error {
@@ -99,7 +115,7 @@ func (vc *VideoConverter) logError(task VideoTask, message string, err error) {
 		"time":     time.Now(),
 	}
 	serialized, _ := json.Marshal(errorData)
-	slog.Error("Processing error", slog.String("error_details", string(serialized)))
+	slog.Error("\033[31m"+"Processing error"+"\033[0m", slog.String("error_details", string(serialized)))
 
 	RegisterError(vc.db, errorData, err)
 }

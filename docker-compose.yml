@@ -1,6 +1,6 @@
 services:
   go_app_dev:
-    container_name: 'go_app_dev'
+    container_name: "go_app_dev"
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,6 +11,17 @@ services:
       POSTGRES_PASSWORD: "postgres"
       POSTGRES_HOST: "postgres"
       POSTGRES_SSL_MODE: "disable"
+
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      CONVERTION_EXCHANGE: "conversion_exchange"
+      CONVERTION_QUEUE: "video_conversion_queue"
+      CONVERTION_KEY: "conversion"
+      CONFIRMATION_KEY: "finish-conversion"
+      CONFIRMATION_QUEUE: "video_confirmation_queue"
+    depends_on:
+      - postgres
+      - rabbitmq
+
     volumes:
       - .:/app
       - external-storage:/media/uploads
@@ -19,7 +30,7 @@ services:
 
   postgres:
     image: postgres:13
-    container_name: 'postgres'
+    container_name: "postgres"
     ports:
       - "5433:5432"
     environment:
@@ -37,6 +48,16 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: teste@teste.com
       PGADMIN_DEFAULT_PASSWORD: teste
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: "rabbitmq"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: "guest"
+      RABBITMQ_DEFAULT_PASS: "guest"
 
 volumes:
   external-storage:
